@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Close CRM — Dials & Talk Time",
+  "version": "3.0",
+  "description": "Shows today's dials and talk time from Close CRM on every tab.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.close.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+#st-bar {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 2147483647 !important;
+  background: #0f0f23;
+  color: #e8e8f0;
+  font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+
+/* ── Full bar ─────────────────────────────────────────────────────────────── */
+#st-full {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 46px;
+  box-sizing: border-box;
+}
+
+/* ── Mini bar ─────────────────────────────────────────────────────────────── */
+#st-mini {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 30px;
+  box-sizing: border-box;
+}
+
+/* ── Brand / labels ───────────────────────────────────────────────────────── */
+.st-brand {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #7c6fff;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.st-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.st-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #5a5a8a;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.st-sep {
+  width: 1px;
+  height: 22px;
+  background: #2a2a4a;
+  flex-shrink: 0;
+}
+
+.st-spacer { flex: 1; }
+
+/* ── Numbers ──────────────────────────────────────────────────────────────── */
+.st-num {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.st-blue  { color: #7eb8f7; }
+.st-green { color: #5ae87a; }
+.st-amber { color: #f59e0b; }
+
+/* ── Top dialler ──────────────────────────────────────────────────────────── */
+.st-trophy {
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.st-top-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c8b87a;
+  white-space: nowrap;
+}
+
+/* When the top dialler is me, accent in teal instead */
+#st-top-group.st-top-is-me .st-top-name { color: #5ae87a; }
+#st-top-group.st-top-is-me .st-amber    { color: #5ae87a; }
+
+/* ── Live chip ────────────────────────────────────────────────────────────── */
+.st-live-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #5a5a8a;
+  white-space: nowrap;
+}
+
+/* ── Status dot ───────────────────────────────────────────────────────────── */
+.st-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #2a2a4a;
+  transition: background 0.3s;
+}
+
+.st-dot-live {
+  background: #5ae87a;
+  box-shadow: 0 0 5px #5ae87a88;
+  animation: st-breathe 2.5s ease-in-out infinite;
+}
+
+.st-dot-loading {
+  background: #f59e0b;
+  animation: st-pulse 0.8s ease-in-out infinite;
+}
+
+.st-dot-error { background: #ef4444; }
+
+@keyframes st-breathe {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+@keyframes st-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.st-btn {
+  background: #1e1e38;
+  color: #d0d0e8;
+  border: 1px solid #2e2e52;
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.st-btn:hover {
+  background: #2a2a50;
+  border-color: #4a4a7a;
+}
+
+.st-dim {
+  color: #5a5a9a;
+  border-color: #222242;
+  font-size: 11px;
+}
+
+.st-dim:hover { color: #9090c0; }
+
+/* ── Timezone select ──────────────────────────────────────────────────────── */
+.st-select {
+  background: #1e1e38;
+  color: #6060a0;
+  border: 1px solid #252545;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.st-select:hover,
+.st-select:focus {
+  color: #9090c0;
+  border-color: #3a3a6a;
+}
