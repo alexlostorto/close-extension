@@ -6,6 +6,62 @@ const HEADS   = { 'Authorization': AUTH, 'Accept': 'application/json' };
 const STALE_MS      = 5000;
 const DEFAULT_TZ    = 'Europe/London';
 
+// ── Duplicate-lead GraphQL (runs in service worker so it's visible there) ────
+const DUPE_GQL = `query DupeCheck($organizationId:ID!,$q:SortedLimitedSearchQueryInput!){
+  organization(id:$organizationId){
+    contactsQuery:searchQuery(query:$q){
+      ...on ValidatedSearchQuery{
+        results(first:10){
+          edges{node{...on Contact{id displayName lead{id name}}}}
+        }
+      }
+    }
+  }
+}`;
+
+function makeDupeVars(orgId, relatedType, fieldName, value) {
+  return {
+    organizationId: orgId,
+    q: {
+      query: {
+        bool: {
+          operator: 'AND',
+          queries: [
+            {
+              bool: {
+                operator: 'OR',
+                negate: false,
+                queries: [{
+                  hasRelated: {
+                    thisObjectType: 'CONTACT',
+                    relatedObjectType: relatedType,
+                    negate: false,
+                    relatedQuery: {
+                      bool: {
+                        operator: 'OR',
+                        negate: false,
+                        queries: [{
+                          fieldCondition: {
+                            negate: false,
+                            field: { regularField: { objectType: relatedType, fieldName } },
+                            condition: { text: { mode: 'BEGINNING_OF_WORDS', stringValue: value } },
+                          },
+                        }],
+                      },
+                    },
+                  },
+                }],
+              },
+            },
+            { objectType: { objectType: 'CONTACT' } },
+          ],
+        },
+      },
+      sort: [{ field: { regularField: { objectType: 'CONTACT', fieldName: 'date_updated' } }, direction: 'DESC' }],
+    },
+  };
+}
+
 let meCache    = null;
 let usersCache = null;
 
@@ -88,12 +144,13 @@ async function fetchMyCalls(userId, since) {
   const calls = await paginate(
     `${BASE}/activity/call/?user_id=${userId}&date_created__gt=${since}&_fields=duration,direction`
   );
-  let dials = 0, talkSeconds = 0;
+  let dials = 0, talkSeconds = 0, convos = 0;
   for (const c of calls) {
     if (c.direction === 'outbound') dials++;
     talkSeconds += c.duration || 0;
+    if ((c.duration || 0) >= 300) convos++; // 5 min+ = real conversation
   }
-  return { dials, talkSeconds: Math.round(talkSeconds) };
+  return { dials, talkSeconds: Math.round(talkSeconds), convos };
 }
 
 async function fetchTeamDialCounts(since) {
@@ -148,6 +205,7 @@ async function fetchStats() {
 
     await chrome.storage.local.set({
       status: 'ok', dials: mine.dials, talkSeconds: mine.talkSeconds,
+      convos: mine.convos,
       topName, topDials: topDials || 0, topIsMe, leaderboard,
       updatedAt: Date.now(),
     });
@@ -167,9 +225,163 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// ── WhatsApp batch checker ────────────────────────────────────────────────────
+// Injects into the open WhatsApp Web tab and uses its internal webpack modules
+// to call queryExist() for each number. Returns an array of booleans (or null
+// if the number could not be determined).
+async function checkWhatsappBatch(waNumbers) {
+  const tabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+  if (!tabs.length) return waNumbers.map(() => null); // WA Web not open
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: async (jids) => {
+        try {
+          let queryExist = null;
+
+          // ── Approach 1: window.require (older WA Web) ──────────────────────
+          if (typeof window.require === 'function') {
+            const knownNames = [
+              'WAWebQueryExistingWid',
+              'WAWebQueryExist',
+              'WAWebPhoneWid',
+            ];
+            for (const name of knownNames) {
+              try {
+                const m = window.require(name);
+                const fn = m?.queryExist ?? m?.default?.queryExist;
+                if (typeof fn === 'function') { queryExist = fn; break; }
+              } catch (_) {}
+            }
+            if (!queryExist) {
+              for (const id of Object.keys(window.require.m || {})) {
+                try {
+                  const m = window.require(id);
+                  const fn = m?.queryExist ?? m?.default?.queryExist;
+                  if (typeof fn === 'function') { queryExist = fn; break; }
+                } catch (_) {}
+              }
+            }
+          }
+
+          // ── Approach 2: webpackChunk global (WA Web 2023+) ─────────────────
+          // Modern WA Web no longer exposes window.require; instead it exposes
+          // a global webpackChunk array. Push a dummy chunk to grab require().
+          if (!queryExist) {
+            const chunkKey = Object.keys(window).find(
+              k => k.startsWith('webpackChunk') && Array.isArray(window[k])
+            );
+            if (chunkKey) {
+              try {
+                let _req = null;
+                window[chunkKey].push([
+                  ['__st_probe_' + Date.now()],
+                  {},
+                  (r) => { _req = r; },
+                ]);
+                if (_req) {
+                  for (const id of Object.keys(_req.m || {})) {
+                    try {
+                      const m = _req(id);
+                      const fn = m?.queryExist ?? m?.default?.queryExist;
+                      if (typeof fn === 'function') { queryExist = fn; break; }
+                    } catch (_) {}
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+
+          if (!queryExist) return jids.map(() => null);
+
+          // ── Step 2: check each JID ──────────────────────────────────────────
+          return Promise.all(jids.map(async jid => {
+            try {
+              const r = await queryExist(jid);
+              if (r === null || r === undefined) return false;
+              // Newer WA versions return a numeric status (200 = exists)
+              if (typeof r === 'number') return r === 200;
+              // Older versions return an object with a .wid property
+              return r?.wid != null;
+            } catch (_) {
+              return null; // network error / indeterminate
+            }
+          }));
+
+        } catch (_) {
+          return jids.map(() => null);
+        }
+      },
+      args: [waNumbers.map(n => `${n}@c.us`)],
+    });
+
+    return results?.[0]?.result ?? waNumbers.map(() => null);
+  } catch (err) {
+    console.warn('WA check failed:', err.message);
+    return waNumbers.map(() => null);
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'ping') {
     fetchStats().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg.action === 'fetch_lead') {
+    fetch(`${BASE}/lead/${msg.leadId}/?_fields=contacts`, { headers: HEADS })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+  if (msg.action === 'check_whatsapp_batch') {
+    checkWhatsappBatch(msg.waNumbers).then(results => sendResponse({ results }));
+    return true;
+  }
+  if (msg.action === 'check_dupes') {
+    (async () => {
+      try {
+        const me    = await getMe();
+        const orgId = (me.organizations || [])[0]?.id;
+        if (!orgId) { sendResponse({ ok: false, error: 'no org id' }); return; }
+        const vars = makeDupeVars(orgId, msg.relatedType, msg.fieldName, msg.value);
+        const r = await fetch(
+          'https://app.close.com/api/v1/graphql/?operationName=DupeCheck',
+          {
+            method: 'POST',
+            headers: { ...HEADS, 'Content-Type': 'application/json', 'x-organization-id': orgId },
+            body: JSON.stringify({ operationName: 'DupeCheck', variables: vars, query: DUPE_GQL }),
+          }
+        );
+        const d = await r.json();
+        if (!r.ok) { sendResponse({ ok: false, error: `HTTP ${r.status}`, raw: d }); return; }
+        const contacts = (d?.data?.organization?.contactsQuery?.results?.edges || [])
+          .map(e => e.node)
+          .filter(n => n?.id && n?.lead?.id);
+        sendResponse({ ok: true, contacts });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+  if (msg.action === 'get_org_id') {
+    getMe()
+      .then(me => sendResponse({ orgId: (me.organizations || [])[0]?.id || null }))
+      .catch(() => sendResponse({ orgId: null }));
+    return true;
+  }
+  if (msg.action === 'search_contacts') {
+    // Search contacts by phone or email. Include phones+emails so the caller
+    // can verify the contact actually has the matched value (not a text false-positive).
+    fetch(
+      `${BASE}/contact/?query=${encodeURIComponent(msg.query)}&_fields=lead_id,name&_limit=20`,
+      { headers: HEADS }
+    )
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => sendResponse({ ok: true, data: data.data || [] }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
 });

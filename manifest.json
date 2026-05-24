@@ -3,8 +3,8 @@
   "name": "Close CRM — Dials & Talk Time",
   "version": "3.0",
   "description": "Shows today's dials and talk time from Close CRM on every tab.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.close.com/*"],
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["https://api.close.com/*", "https://web.whatsapp.com/*"],
   "background": {
     "service_worker": "background.js"
   },
