@@ -62,8 +62,19 @@ function makeDupeVars(orgId, relatedType, fieldName, value) {
   };
 }
 
-let meCache    = null;
-let usersCache = null;
+let meCache         = null;
+let usersCache      = null;
+let triageFieldId   = null;   // cached ID of the "Triage Setter" custom field
+
+async function getTriageFieldId() {
+  if (triageFieldId) return triageFieldId;
+  const r = await fetch(`${BASE}/custom_field/lead/?_fields=id,name&_limit=200`, { headers: HEADS });
+  if (!r.ok) throw new Error(`custom_field → ${r.status}`);
+  const d  = await r.json();
+  const cf = (d.data || []).find(f => f.name === 'Triage Setter');
+  triageFieldId = cf?.id || null;
+  return triageFieldId;
+}
 
 async function getMe() {
   if (meCache) return meCache;
@@ -360,6 +371,54 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .map(e => e.node)
           .filter(n => n?.id && n?.lead?.id);
         sendResponse({ ok: true, contacts });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+  if (msg.action === 'fetch_triage') {
+    (async () => {
+      try {
+        const me      = await getMe();
+        const fieldId = await getTriageFieldId();
+        if (!fieldId) { sendResponse({ ok: true, items: [] }); return; }
+
+        // Leads where I am the Triage Setter (custom field = my user id)
+        const lr = await fetch(
+          `${BASE}/lead/?custom.${fieldId}=${encodeURIComponent(me.id)}&_fields=id,display_name&_limit=100`,
+          { headers: HEADS }
+        );
+        if (!lr.ok) throw new Error(`leads → ${lr.status}`);
+        const leads = (await lr.json()).data || [];
+        if (!leads.length) { sendResponse({ ok: true, items: [] }); return; }
+
+        const nowIso       = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+        const twoHoursAgo  = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+        // For each lead: check upcoming meeting AND no call in the last 2 h (parallel)
+        const results = await Promise.all(leads.map(async lead => {
+          const [meetResp, callResp] = await Promise.all([
+            fetch(
+              `${BASE}/task/?lead_id=${lead.id}&type=meeting&is_complete=false&date__gt=${nowIso}&_limit=1&_fields=date`,
+              { headers: HEADS }
+            ).then(r => r.ok ? r.json() : { data: [] }),
+            fetch(
+              `${BASE}/activity/call/?lead_id=${lead.id}&date_created__gt=${twoHoursAgo}&_limit=1&_fields=id`,
+              { headers: HEADS }
+            ).then(r => r.ok ? r.json() : { data: [] }),
+          ]);
+          const nextMeeting   = (meetResp.data  || [])[0];
+          const calledRecently = (callResp.data || []).length > 0;
+          if (!nextMeeting || calledRecently) return null;
+          return { id: lead.id, name: lead.display_name, meetingAt: nextMeeting.date };
+        }));
+
+        const items = results
+          .filter(Boolean)
+          .sort((a, b) => new Date(a.meetingAt) - new Date(b.meetingAt));
+
+        sendResponse({ ok: true, items });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
       }

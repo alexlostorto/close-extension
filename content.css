@@ -321,6 +321,81 @@ a.st-ph-wa-yes:hover { background: #25d36620; }
 /* ── Pace off (outside shift hours) ──────────────────────────────────────── */
 .st-pace-off { color: #3a3a6a; }
 
+/* ── Triage alerts ────────────────────────────────────────────────────────── */
+#st-triage { border-top: 1px solid #3a0a0a; }
+
+.st-triage-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 26px;
+  box-sizing: border-box;
+  background: #1c0505;
+  border-bottom: 1px solid #3a0a0a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #ef4444;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.st-triage-icon { font-size: 12px; flex-shrink: 0; }
+
+.st-triage-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 26px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #2a0808;
+  text-decoration: none;
+  background: #100404;
+  transition: background 0.12s;
+}
+
+.st-triage-row:last-child { border-bottom: none; }
+.st-triage-row:hover { background: #1c0808; }
+
+.st-triage-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f87171;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.st-triage-meeting {
+  font-size: 10px;
+  color: #f59e0b;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.st-triage-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #ef4444;
+  background: #2a0808;
+  border: 1px solid #4a1010;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.st-triage-open {
+  font-size: 10px;
+  font-weight: 600;
+  color: #7a3030;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* ── Duplicate lead warnings ──────────────────────────────────────────────── */
 #st-dupes { border-top: 1px solid #2a1800; }
 

@@ -1,11 +1,13 @@
 if (!document.getElementById('st-bar')) {
   (function () {
-    const POLL_MS    = 7000;
-    const TALL       = 46;
-    const SHORT      = 30;
-    const PHONE_H    = 28; // height per phone row
-    const DUPE_H     = 26; // height per duplicate row (header + each match)
-    const DEFAULT_TZ = 'Europe/London';
+    const POLL_MS         = 7000;
+    const TALL            = 46;
+    const SHORT           = 30;
+    const PHONE_H         = 28; // height per phone row
+    const DUPE_H          = 26; // height per duplicate row (header + each match)
+    const TRIAGE_H        = 26; // height per triage row (header + each alert)
+    const TRIAGE_POLL_MS  = 2 * 60 * 1000; // refresh triage every 2 minutes
+    const DEFAULT_TZ      = 'Europe/London';
 
     const TZ_OPTIONS = [
       { value: 'Europe/London',       label: '🇬🇧 UK' },
@@ -203,6 +205,7 @@ if (!document.getElementById('st-bar')) {
         <button class="st-btn st-dim" id="st-show" style="font-size:10px;padding:2px 7px;">▼ Show</button>
       </div>
 
+      <div id="st-triage"></div>
       <div id="st-dupes"></div>
       <div id="st-phones"></div>
     `;
@@ -212,10 +215,12 @@ if (!document.getElementById('st-bar')) {
     let barExpanded  = true;
     let phoneRows    = 0;
     let dupeRows     = 0;
+    let triageRows   = 0;
 
     function updateMargin() {
       const base = barExpanded ? TALL : SHORT;
-      document.body.style.marginTop = (base + phoneRows * PHONE_H + dupeRows * DUPE_H) + 'px';
+      document.body.style.marginTop =
+        (base + triageRows * TRIAGE_H + dupeRows * DUPE_H + phoneRows * PHONE_H) + 'px';
     }
     updateMargin();
 
@@ -398,6 +403,60 @@ if (!document.getElementById('st-bar')) {
         }
       });
     }
+
+    // ── Triage panel ─────────────────────────────────────────────────────────
+    // Shows leads where: (a) you are the Triage Setter, (b) there is an upcoming
+    // meeting task, and (c) no call has been logged in the past 2 hours.
+    // Refreshes every 2 minutes so the list stays live.
+
+    function fmtMeetingTime(iso) {
+      const d          = new Date(iso);
+      const now        = new Date();
+      const todayStr   = now.toLocaleDateString('en-CA');
+      const tomorrowStr = new Date(now.getTime() + 86400000).toLocaleDateString('en-CA');
+      const meetStr    = d.toLocaleDateString('en-CA');
+      const timeStr    = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      if (meetStr === todayStr)    return `Today ${timeStr}`;
+      if (meetStr === tomorrowStr) return `Tomorrow ${timeStr}`;
+      return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + timeStr;
+    }
+
+    function renderTriage(items) {
+      const panel = document.getElementById('st-triage');
+      if (!items.length) {
+        panel.innerHTML = '';
+        triageRows = 0;
+        updateMargin();
+        return;
+      }
+      triageRows = 1 + items.length; // header + one row per lead
+      updateMargin();
+      panel.innerHTML = `
+        <div class="st-triage-header">
+          <span class="st-triage-icon">⏰</span>
+          <span>TRIAGE — call required (${items.length} lead${items.length > 1 ? 's' : ''})</span>
+        </div>
+        ${items.map(item => `
+          <a class="st-triage-row" href="/lead/${item.id}/" target="_blank" rel="noopener">
+            <span class="st-triage-name">${item.name}</span>
+            <span class="st-triage-meeting">Meeting: ${fmtMeetingTime(item.meetingAt)}</span>
+            <span class="st-triage-badge">No call 2h+</span>
+            <span class="st-triage-open">↗ Open</span>
+          </a>
+        `).join('')}
+      `;
+    }
+
+    function refreshTriage() {
+      chrome.runtime.sendMessage({ action: 'fetch_triage' }, r => {
+        if (r?.ok) renderTriage(r.items || []);
+        else console.error('[ST] fetch_triage error:', r?.error);
+      });
+    }
+
+    // Initial fetch + recurring refresh every 2 minutes
+    refreshTriage();
+    setInterval(refreshTriage, TRIAGE_POLL_MS);
 
     // ── Duplicate lead checker ────────────────────────────────────────────────
     // All GraphQL fetches run in background.js (service worker) so they are
